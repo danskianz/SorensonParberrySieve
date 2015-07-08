@@ -16,6 +16,15 @@
 
 typedef unsigned long long big;
 
+// Struct-of-Arrays Wheel
+typedef struct Wheel_t
+{
+	bool * rp;	// Numbers relatively prime to m
+	big * dist; // D s.t. x + d is the smallest integer >dist[x] relatively prime to m
+	big * pos;	// pos[x] = # of numbers relatively prime to m up to x
+	long long * inv; // x-th number relatively prime to m
+} Wheel_k;
+
 bool * S;	// Global shared bit array of numbers up to N
 int P;		// Global number of processors
 
@@ -32,6 +41,11 @@ void algorithm4_1(big n);
 	Returns the k-th prime.
 */
 big EratosthenesSieve(long double x);
+
+/*	EulerPhi
+	Computes the Euler Totient/Phi Function
+*/
+big EulerPhi(big n);
 
 /*	MAIN
 	To run this add the ff. args:
@@ -92,12 +106,33 @@ big EratosthenesSieve(long double k)
 	return kthPrime;
 }
 
+big EulerPhi(big n)
+{
+	big i = 0;
+	big j;
+
+	for (j = 1; j <= n; j++)
+	{
+		if (gcd(n, j) == 1) i++;
+	}
+
+	return i;
+}
+
 void algorithm4_1(big n)
 {
+	/* VARIABLES */
 	big range;
 	int p_id;
 	big sqrt_N = (big)sqrtl((long double) n);
-	big ii;
+	big xx;
+
+	Wheel_k wheel;
+	wheel.rp = (bool*)malloc(n * sizeof(bool));
+	wheel.dist = (big*)malloc(n * sizeof(big));
+	wheel.pos = (big*)malloc(n * sizeof(big));
+	wheel.inv = (long long*)malloc(n * sizeof(long long));
+
 
 	/* TODO: Find the first k primes*/
 	// K = maximal s.t. S[K] <= (log N) / 4
@@ -105,14 +140,54 @@ void algorithm4_1(big n)
 
 	/* Find the product of the first k primes m */
 	big m = 1;
-	for (ii = 0; ii < k; ii++)
+	for (xx = 0; xx < k; xx++)
 	{
-		if (S[ii]) m *= ii;
+		if (S[xx]) m *= xx;
 	}
+	
+	
+	/* Compute k-th wheel W_k */
+	for (xx = 0; xx < n; xx++)
+	{
+		// True if rp[x] is relatively prime to m
+		wheel.rp[xx] = (gcd(xx, m) == 1);
+		
+		/* This is d s.t. x + d is
+		   the smallest integer >dist[x]
+		   relatively prime to m */
+		int d = 0;
+		while (gcd(xx + d, m) != 1)
+		{
+			d++;
+		}
+		wheel.dist[xx] = d;
 
-	/* TODO: Compute k-th wheel W[k] */
-	bool * Wheel_k_rp;
-	big * Wheel_k_dist;
+		/* If gcd(x, m) == 1,
+		   pos[x] = # of numbers relatively prime to m
+		   up to x */
+		wheel.pos[xx] = 0;
+		if (gcd(xx, m) == 1)
+		{
+			for (d = 0; d <= xx; d++)
+			{
+				if (wheel.rp[d]) wheel.pos[xx]++;
+			}
+		}
+
+		/* If (x == 0), inv[x] = -1
+		   Else if (x < phi(m)), inv[x] = rp[x]
+		   Else inv[x] = 0
+		*/
+		if (xx == 0) wheel.inv[xx] = 1;
+		else if (xx < EulerPhi(m))	/*TODO: Implement the Euler Phi*/
+		{
+			for (d = 0; d <= xx; d++)
+			{
+				if (wheel.rp[d]) wheel.inv[xx] = d;
+			}
+		}
+		else wheel.inv[xx] = 0;
+	}
 
 	/* TODO: Find primes up to sqrt(N) */
 	big * tinyPrimes;
@@ -130,7 +205,7 @@ void algorithm4_1(big n)
 		/* Range Sieving */
 		for (x = L; x < R; x++)
 		{
-			S[x] = Wheel_k_rp[x % m];
+			S[x] = wheel.rp[x % m];
 		}
 
 		/* For every prime from prime[k] up to sqrt(N)*/
@@ -139,24 +214,24 @@ void algorithm4_1(big n)
 			/* Compute smallest f s.t.
 			gcd(qf, m) == 1,
 			qf >= max(L, q^2) */
-			big f = max(tinyPrimes[i] - 1, ceill(L / (long double)(tinyPrimes[i] - 1)));
+			big f = max(tinyPrimes[i] - 1, ceill( (L / (long double)(tinyPrimes[i] - 1)) ));
 
 			/* f = f + W_k[f mod m].dist */
-			f += Wheel_k_dist[f % m];
+			f += wheel.dist[f % m];
 
 			/* Remove the multiples of current prime */
 			while ((tinyPrimes[i]*f) <= R)
 			{
 				S[tinyPrimes[i] * f] = false;
-				f += Wheel_k_dist[f % m];
+				f += wheel.dist[f % m];
 			}
 		}
 	}
 
 	/* SEQUENTIAL CLEANUP */
-	for (ii = 0; ii < k; ii++)
+	for (xx = 0; xx < k; xx++)
 	{
-		S[tinyPrimes[ii]] = true;
+		S[tinyPrimes[xx]] = true;
 	}
 	//S[1] = false;
 }
