@@ -16,17 +16,22 @@
 
 typedef unsigned long long big;
 
-bool * S;	// Global shared bit array
+bool * S;	// Global shared bit array of numbers up to N
 int P;		// Global number of processors
 
 
-/*	Algorithm 4.1
+/*	Algorithm 4.1 Fully Sequential Version
 	Running Time: O(sqrt(n))
-	Parallelization: O(sqrt(n)) processors
 	Space: O(sqrt(n)) up to O(sqrt(n)/log log n)
-	PRAM Mode: Exclusive Read, Exclusive Write (EREW)
 */
 void algorithm4_1(big n);
+
+/*	EratosthenesSieve
+	The most basic form of generating primes.
+	Used to help find the first k primes.
+	Returns the k-th prime.
+*/
+big EratosthenesSieve(long double x);
 
 /*	MAIN
 	To run this add the ff. args:
@@ -40,9 +45,9 @@ int main(int argc, char *argv[])
 	P = argv[2];
 	S = (big)malloc(N * sizeof(big));
 
-	
-
 	printf("Find primes up to: %llu", N);
+
+	algorithm4_1(N);
 
 	// Display the primes.
 	for (i = 0; i < N; i++)
@@ -51,6 +56,40 @@ int main(int argc, char *argv[])
 	}
 
 	return 0;
+}
+
+big EratosthenesSieve(long double k)
+{
+	big kthPrime;
+	int i;
+
+	// 0 and 1 are non-primes.
+	S[0] = S[1] = false;
+	for (i = 2; i < k; i++)
+	{
+		S[i] = true;
+	}
+
+	// Simple Sieving Operation.
+	for (i = 2; i < sqrtl(k); i++)
+	{
+		if (S[i])
+		{
+			int j;
+			for (j = i*i; j < k; j += i)
+			{
+				S[j] = false;
+			}
+		}
+	}
+
+	// Find the k-th prime.
+	for (i = 2; i < k; i++)
+	{
+		if (S[i]) kthPrime = i;
+	}
+
+	return kthPrime;
 }
 
 void algorithm4_1(big n)
@@ -100,7 +139,7 @@ void algorithm4_1(big n)
 			/* Compute smallest f s.t.
 			gcd(qf, m) == 1,
 			qf >= max(L, q^2) */
-			big f = max(tinyPrimes[i] - 1, ceill(L, (long double)(tinyPrimes[i] - 1)));
+			big f = max(tinyPrimes[i] - 1, ceill(L / (long double)(tinyPrimes[i] - 1)));
 
 			/* f = f + W_k[f mod m].dist */
 			f += Wheel_k_dist[f % m];
@@ -119,6 +158,5 @@ void algorithm4_1(big n)
 	{
 		S[tinyPrimes[ii]] = true;
 	}
-
-	S[1] = false;
+	//S[1] = false;
 }
