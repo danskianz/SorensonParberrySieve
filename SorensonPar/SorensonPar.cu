@@ -32,8 +32,6 @@ typedef struct Wheel_t
 {
 	bool * rp;	// Numbers relatively prime to m
 	big * dist; // D s.t. x + d is the smallest integer >dist[x] relatively prime to m
-	big * pos;	// pos[x] = # of numbers relatively prime to m up to x
-	long long * inv; // x-th number relatively prime to m
 } Wheel_k;
 
 bool * S;	// Global shared bit array of numbers up to N
@@ -49,11 +47,6 @@ big gcd(big a, big b);
 */
 big EratosthenesSieve(long double x);
 
-/*	EulerPhi
-	Computes the Euler Totient/Phi Function
-*/
-big EulerPhi(big n);
-
 /*	Algorithm 4.1 Sequential Portion
 Running Time: O(sqrt(n))
 Space: O(sqrt(n)) up to O(sqrt(n)/log log n)
@@ -64,7 +57,7 @@ void algorithm4_1(big n);
 	All CUDA-related functionality goes here.
 */
 cudaError_t parallelSieve(
-	big n, big k, const Wheel_k &wheel, big range, const big *&tinyPrimes);
+	big n, big k, big m, const Wheel_k &wheel, big range, big *&tinyPrimes);
 
 /*	Algorithm 4.1: Parallel Sieve Kernel
 	Parallelization: O(sqrt(n)) processors
@@ -72,9 +65,39 @@ cudaError_t parallelSieve(
 	PRAM Mode: Exclusive Read, Exclusive Write (EREW)
 */
 __global__ void parallelSieveKernel(
-	big n, big k, Wheel_k wheel, big range, big *d_tinyPrimes, bool *d_S)
+	big n, big k, big m, Wheel_k d_wheel, big range, big *d_tinyPrimes, bool *d_S)
 {
 	// TODO: Express the sieve in thread mode.
+	big i = threadIdx.x + blockIdx.x * blockDim.x;
+
+	big L = range * i + 1;
+	big R = std::min(range * (i + 1), n);
+
+	/* Range Sieving */
+	for (big x = L; x < R; x++)
+		d_S[x] = d_wheel.rp[x % m];
+
+	/* For every prime from prime[k] up to sqrt(N) */
+	for (big q = k; q < (big)ceill(sqrt(n)); q++)
+	{
+		if (d_S[q])
+		{
+			/* Compute smallest f s.t.
+			gcd(qf, m) == 1,
+			qf >= max(L, q^2) */
+			big f = std::max(d_tinyPrimes[q] - 1, (big)ceill((L / (long double)(d_tinyPrimes[q] - 1))));
+
+			/* f = f + W_k[f mod m].dist */
+			f += d_wheel.dist[f % m];
+
+			/* Remove the multiples of current prime */
+			while ((d_tinyPrimes[q] * f) <= R)
+			{
+				S[d_tinyPrimes[q] * f] = false;
+				f += d_wheel.dist[f % m];
+			}
+		}
+	}
 }
 
 /*	MAIN
@@ -136,17 +159,6 @@ big EratosthenesSieve(long double k)
 	return kthPrime;
 }
 
-big EulerPhi(big n)
-{
-	big i = 0;
-	big j;
-
-	for (j = 1; j <= n; j++)
-		if (gcd(n, j) == 1) i++;
-
-	return i;
-}
-
 void algorithm4_1(big n)
 {
 	/* VARIABLES */
@@ -157,8 +169,6 @@ void algorithm4_1(big n)
 	/* Allocation of wheel */
 	wheel.rp = new bool[n];
 	wheel.dist = new big[n];
-	wheel.pos = new big[n];
-	wheel.inv = new long long[n];
 
 	/* Find the first k primes
 	   K = maximal s.t. S[K] <= (log N) / 4 */
@@ -184,24 +194,6 @@ void algorithm4_1(big n)
 			d++;
 
 		wheel.dist[x] = d;
-
-		/* If gcd(x, m) == 1,
-		pos[x] = # of numbers relatively prime to m
-		up to x */
-		wheel.pos[x] = 0;
-		if (gcd(x, m) == 1)
-			for (d = 0; d <= x; d++)
-				if (wheel.rp[d]) wheel.pos[x]++;
-
-		/* If (x == 0), inv[x] = -1
-		Else if (x < phi(m)), inv[x] = rp[x]
-		Else inv[x] = 0
-		*/
-		if (x == 0) wheel.inv[x] = 1;
-		else if (x < EulerPhi(m))
-			for (d = 0; d <= x; d++)
-				if (wheel.rp[d]) wheel.inv[x] = d;
-		else wheel.inv[x] = 0;
 	}
 
 	/* TODO: Find primes up to sqrt(N) */
@@ -211,7 +203,11 @@ void algorithm4_1(big n)
 	range = (big)ceill(n / (long double)P);
 
 	/* PARALLEL PART */
-	
+	cudaError_t parallelStatus = parallelSieve(n, k, wheel, range, tinyPrimes);
+	if (parallelStatus != cudaSuccess) {
+		fprintf(stderr, "parallelSieve() failed!");
+		exit(EXIT_FAILURE);
+	}
 
 	/* SEQUENTIAL CLEANUP */
 	for (big i = 2; i < k; i++)
@@ -220,12 +216,10 @@ void algorithm4_1(big n)
 	/* FREE */
 	delete[] wheel.rp;
 	delete[] wheel.dist;
-	delete[] wheel.pos;
-	delete[] wheel.inv;
 }
 
 cudaError_t parallelSieve(
-	big n, big k, const Wheel_k &wheel, big range, const big *&tinyPrimes)
+	big n, big k, big m, const Wheel_k &wheel, big range, const big *&tinyPrimes)
 {
 	cudaError_t cudaStatus;
 
@@ -276,21 +270,15 @@ cudaError_t parallelSieve(
 		fprintf(stderr, "cudaMalloc failed on wheel.dist!");
 		goto Error;
 	}
-	cudaStatus = cudaMalloc((void**)&d_wheel.pos, n * sizeof(big));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed on wheel.pos!");
-		goto Error;
-	}
-
-	cudaStatus = cudaMalloc((void**)&d_wheel.inv, n * sizeof(long long));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed on wheel!");
-		goto Error;
-	}
 
 	// TODO: cudaMemCpy -> Device
+
 	// TODO: Kernel Call
-	parallelSieveKernel(n, k, wheel, range, d_tinyPrimes, d_S);
+	dim3 gridSize(ceill(ceill(sqrt(n))/256), 1, 1);
+	dim3 blockSize(256, 1, 1);
+
+	parallelSieveKernel<<<gridSize, blockSize>>>(n, k, m, wheel, range, d_tinyPrimes, d_S);
+
 	// TODO: cudaMemCpy -> Host
 
 	// TODO: SECONDARY - measure stop time
@@ -301,8 +289,6 @@ Error:
 	cudaFree(d_tinyPrimes);
 	cudaFree(d_wheel.rp);
 	cudaFree(d_wheel.dist);
-	cudaFree(d_wheel.pos);
-	cudaFree(d_wheel.inv);
 
 	return cudaStatus;
 }
