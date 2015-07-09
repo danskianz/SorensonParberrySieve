@@ -57,7 +57,7 @@ void algorithm4_1(big n);
 	All CUDA-related functionality goes here.
 */
 cudaError_t parallelSieve(
-	big n, big k, big m, const Wheel_k &wheel, big range, big *&tinyPrimes);
+	big n, big k, big m, const Wheel_k &wheel, big range);
 
 /*	Algorithm 4.1: Parallel Sieve Kernel
 	Parallelization: O(sqrt(n)) processors
@@ -65,7 +65,7 @@ cudaError_t parallelSieve(
 	PRAM Mode: Exclusive Read, Exclusive Write (EREW)
 */
 __global__ void parallelSieveKernel(
-	big n, big k, big m, Wheel_k d_wheel, big range, big *d_tinyPrimes, bool *d_S)
+	big n, big k, big m, Wheel_k d_wheel, big range, bool *d_S)
 {
 	// TODO: Express the sieve in thread mode.
 	big i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -85,15 +85,15 @@ __global__ void parallelSieveKernel(
 			/* Compute smallest f s.t.
 			gcd(qf, m) == 1,
 			qf >= max(L, q^2) */
-			big f = std::max(d_tinyPrimes[q] - 1, (big)ceill((L / (long double)(d_tinyPrimes[q] - 1))));
+			big f = std::max(q - 1, (big)ceill( (L / (long double)q) - 1));
 
 			/* f = f + W_k[f mod m].dist */
 			f += d_wheel.dist[f % m];
 
 			/* Remove the multiples of current prime */
-			while ((d_tinyPrimes[q] * f) <= R)
+			while ((q * f) <= R)
 			{
-				S[d_tinyPrimes[q] * f] = false;
+				S[q * f] = false;
 				f += d_wheel.dist[f % m];
 			}
 		}
@@ -134,29 +134,27 @@ big gcd(big a, big b)
 	return b;
 }
 
-big EratosthenesSieve(long double k)
+big EratosthenesSieve(long double k, big n)
 {
 	big kthPrime;
 
 	// 0 and 1 are non-primes.
 	S[0] = S[1] = false;
-	for (int i = 2; i < k; i++)
+	for (big i = 2; i < n; i++)
 		S[i] = true;
 
 	// Simple Sieving Operation.
-	for (int i = 2; i < sqrtl(k); i++)
+	for (big i = 2; i < (big)sqrtl(n); i++)
 		if (S[i])
 		{
 			int j;
-			for (j = i*i; j < k; j += i)
+			for (j = i*i; j < n; j += i)
 				S[j] = false;
 		}
 
 	// Find the k-th prime.
-	for (int i = 2; i < k; i++)
-		if (S[i]) kthPrime = i;
-
-	return kthPrime;
+	for (big i = k; i > 2; i--)
+		if (S[i]) return i;
 }
 
 void algorithm4_1(big n)
@@ -171,8 +169,9 @@ void algorithm4_1(big n)
 	wheel.dist = new big[n];
 
 	/* Find the first k primes
-	   K = maximal s.t. S[K] <= (log N) / 4 */
-	big k = EratosthenesSieve(log10l((long double)n) / 4);
+	   K = maximal s.t. S[K] <= (log N) / 4
+	   Find primes up to sqrt(N) */
+	big k = EratosthenesSieve(log10l((long double)n) / 4, n);
 
 	/* Find the product of the first k primes m */
 	big m = 1;
@@ -196,22 +195,15 @@ void algorithm4_1(big n)
 		wheel.dist[x] = d;
 	}
 
-	/* TODO: Find primes up to sqrt(N) */
-	big * tinyPrimes;
-
 	/* Delta = ceil(n/p) */
 	range = (big)ceill(n / (long double)P);
 
 	/* PARALLEL PART */
-	cudaError_t parallelStatus = parallelSieve(n, k, wheel, range, tinyPrimes);
+	cudaError_t parallelStatus = parallelSieve(n, k, m, wheel, range);
 	if (parallelStatus != cudaSuccess) {
 		fprintf(stderr, "parallelSieve() failed!");
 		exit(EXIT_FAILURE);
 	}
-
-	/* SEQUENTIAL CLEANUP */
-	for (big i = 2; i < k; i++)
-		S[tinyPrimes[i]] = true;
 
 	/* FREE */
 	delete[] wheel.rp;
@@ -219,7 +211,7 @@ void algorithm4_1(big n)
 }
 
 cudaError_t parallelSieve(
-	big n, big k, big m, const Wheel_k &wheel, big range, const big *&tinyPrimes)
+	big n, big k, big m, const Wheel_k &wheel, big range)
 {
 	cudaError_t cudaStatus;
 
@@ -230,7 +222,6 @@ cudaError_t parallelSieve(
 
 	// The list of primes up to sqrt(n)
 	// OPTIMIZATION: will be migrated to CONSTANT memory
-	big * d_tinyPrimes;
 
 	// The Wheel Precomputed Table
 	// will be migrated to GLOBAL memory
@@ -253,12 +244,6 @@ cudaError_t parallelSieve(
 		goto Error;
 	}
 
-	cudaStatus = cudaMalloc((void**)&d_tinyPrimes, n * sizeof(big));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed on tinyPrimes!");
-		goto Error;
-	}
-
 	cudaStatus = cudaMalloc((void**)&d_wheel.rp, n * sizeof(bool));
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed on wheel.rp!");
@@ -277,7 +262,7 @@ cudaError_t parallelSieve(
 	dim3 gridSize(ceill(ceill(sqrt(n))/256), 1, 1);
 	dim3 blockSize(256, 1, 1);
 
-	parallelSieveKernel<<<gridSize, blockSize>>>(n, k, m, wheel, range, d_tinyPrimes, d_S);
+	parallelSieveKernel<<<gridSize, blockSize>>>(n, k, m, wheel, range, d_S);
 
 	// TODO: cudaMemCpy -> Host
 
@@ -286,7 +271,6 @@ cudaError_t parallelSieve(
 	// TODO: cudaFree
 Error:
 	cudaFree(d_S);
-	cudaFree(d_tinyPrimes);
 	cudaFree(d_wheel.rp);
 	cudaFree(d_wheel.dist);
 
