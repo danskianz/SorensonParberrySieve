@@ -133,9 +133,8 @@ void algorithm4_1(big n)
 	wheel.pos = (big*)malloc(n * sizeof(big));
 	wheel.inv = (long long*)malloc(n * sizeof(long long));
 
-
-	/* TODO: Find the first k primes*/
-	// K = maximal s.t. S[K] <= (log N) / 4
+	/* Find the first k primes
+	   K = maximal s.t. S[K] <= (log N) / 4 */
 	big k = EratosthenesSieve(log10l((long double) n) / 4);
 
 	/* Find the product of the first k primes m */
@@ -144,7 +143,6 @@ void algorithm4_1(big n)
 	{
 		if (S[xx]) m *= xx;
 	}
-	
 	
 	/* Compute k-th wheel W_k */
 	for (xx = 0; xx < n; xx++)
@@ -234,4 +232,10 @@ void algorithm4_1(big n)
 		S[tinyPrimes[xx]] = true;
 	}
 	//S[1] = false;
+
+	/* FREE */
+	free(wheel.rp);
+	free(wheel.dist);
+	free(wheel.pos);
+	free(wheel.inv);
 }
