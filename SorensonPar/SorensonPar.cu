@@ -51,7 +51,7 @@ big EratosthenesSieve(long double x);
 Running Time: O(sqrt(n))
 Space: O(sqrt(n)) up to O(sqrt(n)/log log n)
 */
-void algorithm4_1(big n);
+cudaError_t algorithm4_1(big n);
 
 /*	Algorithm 4.1 Helper: Parallel Sieve
 	All CUDA-related functionality goes here.
@@ -113,7 +113,12 @@ int main(int argc, char **argv)
 
 	printf("Find primes up to: %llu", N);
 
-	algorithm4_1(N);
+	cudaError_t x = algorithm4_1(N);
+	if (x != cudaSuccess)
+	{
+		printf("Algorithm 4.1 failed to execute!");
+		return 1;
+	}
 
 	// Display the primes.
 	for (int i = 0; i < N; i++)
@@ -157,7 +162,7 @@ big EratosthenesSieve(long double k, big n)
 		if (S[i]) return i;
 }
 
-void algorithm4_1(big n)
+cudaError_t algorithm4_1(big n)
 {
 	/* VARIABLES */
 	big range;
@@ -202,12 +207,13 @@ void algorithm4_1(big n)
 	cudaError_t parallelStatus = parallelSieve(n, k, m, wheel, range);
 	if (parallelStatus != cudaSuccess) {
 		fprintf(stderr, "parallelSieve() failed!");
-		exit(EXIT_FAILURE);
 	}
 
 	/* FREE */
 	delete[] wheel.rp;
 	delete[] wheel.dist;
+
+	return parallelStatus;
 }
 
 cudaError_t parallelSieve(
@@ -256,19 +262,53 @@ cudaError_t parallelSieve(
 		goto Error;
 	}
 
-	// TODO: cudaMemCpy -> Device
+	//  cudaMemCpy -> Device
+	cudaStatus = cudaMemcpy(d_S, S, n * sizeof(bool), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy failed! S->d_S.");
+		goto Error;
+	}
 
-	// TODO: Kernel Call
+	cudaStatus = cudaMemcpy(d_wheel.rp, wheel.rp, n * sizeof(bool), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy failed! wheel.rp->d_wheel.rp");
+		goto Error;
+	}
+
+	cudaStatus = cudaMemcpy(d_wheel.dist, wheel.dist, n * sizeof(big), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy failed! wheel.dist->d_wheel.dist");
+		goto Error;
+	}
+
+	// Kernel Call
 	dim3 gridSize(ceill(ceill(sqrt(n))/256), 1, 1);
 	dim3 blockSize(256, 1, 1);
 
 	parallelSieveKernel<<<gridSize, blockSize>>>(n, k, m, wheel, range, d_S);
 
-	// TODO: cudaMemCpy -> Host
+	cudaStatus = cudaGetLastError();
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "parallelSieveKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+		goto Error;
+	}
+
+	cudaStatus = cudaDeviceSynchronize();
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
+		goto Error;
+	}
+
+	// cudaMemCpy -> Host
+	cudaStatus = cudaMemcpy(S, d_S, n * sizeof(bool), cudaMemcpyDeviceToHost);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy failed! d_S->S.");
+		goto Error;
+	}
 
 	// TODO: SECONDARY - measure stop time
 
-	// TODO: cudaFree
+	// cudaFree
 Error:
 	cudaFree(d_S);
 	cudaFree(d_wheel.rp);
