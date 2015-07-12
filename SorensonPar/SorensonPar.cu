@@ -48,26 +48,31 @@ big gcd(big a, big b);
 big EratosthenesSieve(long double x);
 
 /*	Algorithm 4.1 Sequential Portion
-Running Time: O(sqrt(n))
-Space: O(sqrt(n)) up to O(sqrt(n)/log log n)
+	Running Time: O(sqrt(n))
+	Space: O(sqrt(n)) up to O(sqrt(n)/log log n)
 */
 cudaError_t algorithm4_1(big n);
 
 /*	Algorithm 4.1 Helper: Parallel Sieve
 	All CUDA-related functionality goes here.
+	This code will change for different kernel versions.
 */
 cudaError_t parallelSieve(
 	big n, big k, big m, const Wheel_k &wheel, big range);
 
-/*	Algorithm 4.1: Parallel Sieve Kernel
+/*	Algorithm 4.1: Parallel Sieve Kernel version 1
 	Parallelization: O(sqrt(n)) processors
 	Space: O(sqrt(n)) up to O(sqrt(n)/log log n)
 	PRAM Mode: Exclusive Read, Exclusive Write (EREW)
+	Remarks: No optimizations yet performed.
+			 For n = 1 billion, it uses 31623 threads
 */
 __global__ void parallelSieveKernel(
 	big n, big k, big m, Wheel_k d_wheel, big range, bool *d_S)
 {
-	// TODO: Express the sieve in thread mode.
+	big sqrt_N = (big)ceill(sqrtl(n));
+
+	// Express the sieve in thread mode.
 	big i = threadIdx.x + blockIdx.x * blockDim.x;
 
 	big L = range * i + 1;
@@ -78,7 +83,7 @@ __global__ void parallelSieveKernel(
 		d_S[x] = d_wheel.rp[x % m];
 
 	/* For every prime from prime[k] up to sqrt(N) */
-	for (big q = k; q < (big)ceill(sqrt(n)); q++)
+	for (big q = k; q < sqrt_N; q++)
 	{
 		if (d_S[q])
 		{
@@ -100,22 +105,35 @@ __global__ void parallelSieveKernel(
 	}
 }
 
+/*	TODO: Algorithm 4.1: Parallel Sieve Kernel version 2
+	Remarks: Prime table S within [0, sqrt(n)] migrated to const memory
+			 Wheel completely migrated to const memory	
+*/
+__global__ void parallelSieveKernel2(
+	big n, big k, big m, Wheel_k d_wheel, big range, bool *d_S);
+
+/*	TODO: Algorithm 4.1: Parallel Sieve Kernel version 3
+	Remarks: Prime table S within [0, sqrt(n)] migrated to const memory
+			 Wheel completely migrated to const memory
+			 Probable use of the shared memory
+			 Probable use of registers
+*/
+__global__ void parallelSieveKernel3(
+	big n, big k, big m, Wheel_k d_wheel, big range, bool *d_S);
+
 /*	MAIN
 	To run this add the ff. args:
 	1. N = the number up to which you're sieving
-	2. P = the number of threads you'll be using
 */
 int main(int argc, char **argv)
 {
 	big N = (big)argv[1];
-	P = (int)argv[2];
 	S = new bool[N]; //(bool*)malloc(N * sizeof(bool));
 
 	printf("Find primes up to: %llu", N);
 
 	cudaError_t x = algorithm4_1(N);
-	if (x != cudaSuccess)
-	{
+	if (x != cudaSuccess) {
 		printf("Algorithm 4.1 failed to execute!");
 		return 1;
 	}
@@ -220,6 +238,9 @@ cudaError_t parallelSieve(
 	big n, big k, big m, const Wheel_k &wheel, big range)
 {
 	cudaError_t cudaStatus;
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
 
 	// The Number Field S
 	// will be migrated to GLOBAL memory
@@ -241,7 +262,8 @@ cudaError_t parallelSieve(
 		goto Error;
 	}
 
-	// TODO: SECONDARY - measure start time
+	// Measure start time for CUDA portion
+	cudaEventRecord(start, 0);
 
 	// CUDA Memory Allocations.
 	cudaStatus = cudaMalloc((void**)&d_S, n * sizeof(bool));
@@ -306,7 +328,12 @@ cudaError_t parallelSieve(
 		goto Error;
 	}
 
-	// TODO: SECONDARY - measure stop time
+	// Measure stop time for CUDA portion
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+	float elapsedTime;
+	cudaEventElapsedTime(&elapsedTime, start, stop);
+	printf("Time to generate: %0.5f ms\n", elapsedTime);
 
 	// cudaFree
 Error:
