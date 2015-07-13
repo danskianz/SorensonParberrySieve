@@ -35,13 +35,47 @@ bool * S;	// Global shared bit array of numbers up to N
 int P;		// Global number of processors
 
 /*	Custom math functions for the device */
-__device__ big gcd_d(big a, big b);
+/* find number c s.t a = sc, b = tc */
 
-__device__ big sqrt_d(big a);
+__device__ big gcd_d(big a, big b)
+{
+   big tmp;
+   
+   while (b!=0)
+   {
+      tmp = a;
+      a = b;
+      b = tmp%b;
+   }
+   return a;
+}
 
-__device__ big min(big a, big b);
+__device__ big sqrt_d(big a)
+{
+   big x_0 = a/2;
+   big root = 0;
+   
+   for (big n = x_0; n < 10; n++)
+   {
+      root = 0.5 * (root + (a/root));
+   }
+   
+   return root;
+}
 
-__device__ big max(big a, big b);
+__device__ big min_d(big a, big b)
+{
+   if (a < b)
+      return a;
+   return b;
+}
+
+__device__ big max_d(big a, big b)
+{
+   if (a > b)
+      return a;
+   return b;
+}
 
 
 /*	EratosthenesSieve
@@ -72,57 +106,21 @@ cudaError_t parallelSieve(
 			 For n = 1 billion, it uses 31623 threads
 */
 
-/* find number c s.t a = sc, b = tc
-__device__ big gcd_d(big a, big b)
-{
-   if (b == 0)
-      return a;
-      
-   return gcd(b, a%b);
-}
-
-__device__ big sqrt_d(big a)
-{
-   big x_0 = a/2;
-   big root = 0;
-   
-   for (big n = x_0; n < 10; n++)
-   {
-      root = 0.5 * (root + (a/root));
-   }
-   
-   return root;
-}
-
-__device__ big min(big a, big b)
-{
-   if (a < b)
-      return a;
-   return b;
-}
-
-__device__ big max(big a, big b)
-{
-   if (a > b)
-      return a;
-   return b;
-}
-
-
 /* Frees the memory allocated on the device and returns any errors*/
 cudaError_t cleanup(
    bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus);
    
+   
 __global__ void parallelSieveKernel(
 	big n, big k, big m, Wheel_k d_wheel, big range, bool *d_S)
 {
-	big sqrt_N = (sqrt_d(n));
+	big sqrt_N = sqrt_d(n);
 
 	// Express the sieve in thread mode.
 	big i = threadIdx.x + blockIdx.x * blockDim.x;
 
 	big L = range * i + 1;
-	big R = min(range * (i + 1), n);
+	big R = min_d(range * (i + 1), n);
 
 	/* Range Sieving */
 	for (big x = L; x < R; x++)
@@ -135,8 +133,8 @@ __global__ void parallelSieveKernel(
 		{
 			/* Compute smallest f s.t.
 			gcd_d(qf, m) == 1,
-			qf >= max(L, q^2) */
-			big f = max(q - 1, (big)( (L / q) - 1));
+			qf >= max_d(L, q^2) */
+			big f = max_d(q - 1, (big)( (L / q) - 1));
 
 			/* f = f + W_k[f mod m].dist */
 			f += d_wheel.dist[f % m];
