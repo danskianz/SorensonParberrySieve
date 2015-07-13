@@ -24,8 +24,9 @@
 
 typedef unsigned long long big;
 
-// Struct-of-Arrays Wheel
-typedef struct Wheel_t
+// GLOBAL VARIABLES--------------------------------------
+
+typedef struct Wheel_t	// Struct-of-Arrays Wheel
 {
 	bool * rp;	// Numbers relatively prime to m
 	big * dist; // D s.t. x + d is the smallest integer >dist[x] relatively prime to m
@@ -34,52 +35,15 @@ typedef struct Wheel_t
 bool * S;	// Global shared bit array of numbers up to N
 int P;		// Global number of processors
 
-/*	Custom math functions for the device */
+// HOST FUNCTION HEADERS---------------------------------
 
-// find number c such that: a = sc, b = tc
-__device__ big gcd_d(big a, big b)
-{
-   big tmp;
-   
-   while (b!=0)
-   {
-      tmp = a;
-      a = b;
-      b = tmp%b;
-   }
-   return a;
-}
-
-// Babylonian Method
-__device__ big sqrt_d(big a)
-{
-   big x_0 = a/2;
-   big root = 0;
-   
-   for (big n = x_0; n < 10; n++)
-   {
-      root = 0.5 * (root + (a/root));
-   }
-   
-   return root;
-}
-
-__device__ big min_d(big a, big b)
-{
-   if (a < b)
-      return a;
-   return b;
-}
-
-__device__ big max_d(big a, big b)
-{
-   if (a > b)
-      return a;
-   return b;
-}
-
+/*	gcd
+	Host version of the Euclidean Method
+*/
+__host__ big gcd(big a, big b);
 
 /*	EratosthenesSieve
+	HELPER: for Algorithm 4.1 Sequential Portion
 	The most basic form of generating primes.
 	Used to help find the first k primes.
 	Returns the k-th prime.
@@ -99,18 +63,66 @@ cudaError_t algorithm4_1(big n);
 cudaError_t parallelSieve(
 	big n, big k, big m, const Wheel_k &wheel, big range);
 
+/* Frees the memory allocated on the device and returns any errors*/
+cudaError_t cleanup(bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus);
+
+
+// DEVICE MATH FUNCTIONS---------------------------------
+
+/*	gcd_d
+	Device version of the Euclidean Method
+	find number c such that: a = sc, b = tc
+*/
+__device__ big gcd_d(big a, big b)
+{
+   big tmp;
+   
+   while (b!=0)
+   {
+      tmp = a;
+      a = b;
+      b = tmp%b;
+   }
+   return a;
+}
+
+/*	sqrt_d
+	Device version of the Square Root Function
+	Babylonian Method
+*/
+__device__ big sqrt_d(big a)
+{
+   big x_0 = a/2;
+   big root = 0;
+   
+   for (big n = x_0; n < 10; n++)
+   {
+      root = 0.5 * (root + (a/root));
+   }
+   
+   return root;
+}
+
+__device__ big min_d(big a, big b)
+{
+   return (a < b) ? a : b;
+}
+
+__device__ big max_d(big a, big b)
+{
+	return (a > b) ? a : b;
+}
+
+
+// ALGORITHM 4.1 KERNEL VERSIONS-------------------------
+
 /*	Algorithm 4.1: Parallel Sieve Kernel version 1
 	Parallelization: O(sqrt(n)) processors
 	Space: O(sqrt(n)) up to O(sqrt(n)/log log n)
 	PRAM Mode: Exclusive Read, Exclusive Write (EREW)
 	Remarks: No optimizations yet performed.
-			 For n = 1 billion, it uses 31623 threads
+	For n = 1 billion, it uses 31623 threads
 */
-
-/* Frees the memory allocated on the device and returns any errors*/
-cudaError_t cleanup(bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus);
-   
-
 __global__ void parallelSieveKernel(
 	big n, big k, big m, Wheel_k d_wheel, big range, bool *d_S)
 {
@@ -151,7 +163,9 @@ __global__ void parallelSieveKernel(
 
 /*	TODO: Algorithm 4.1: Parallel Sieve Kernel version 2
 	Remarks: Prime table S within [0, sqrt(n)] migrated to const memory
-			 Wheel completely migrated to const memory	
+			 Wheel completely migrated to const memory
+	Beware that const memory is only 64kB.
+	Benchmark with the Profiler first before creating this!
 */
 __global__ void parallelSieveKernel2(
 	big n, big k, big m, Wheel_k d_wheel, big range, bool *d_S);
@@ -161,6 +175,9 @@ __global__ void parallelSieveKernel2(
 			 Wheel completely migrated to const memory
 			 Probable use of the shared memory
 			 Probable use of registers
+	Beware that register is only 4B or 32b.
+	Beware that const memory is only 64kB.
+	Benchmark with the Profiler first before creating this!
 */
 __global__ void parallelSieveKernel3(
 	big n, big k, big m, Wheel_k d_wheel, big range, bool *d_S);
@@ -188,6 +205,9 @@ int main(int argc, char **argv)
 
     return 0;
 }
+
+
+// HOST FUNCTION DEFINITIONS-----------------------------
 
 __host__ big gcd(big a, big b)
 {
@@ -289,25 +309,25 @@ cudaError_t parallelSieve(
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 
-	// The Number Field S
-	// will be migrated to GLOBAL memory
-	// OPTIMIZATION: ranges will be migrated to SHARED memory
-	bool * d_S;
-
-	// The list of primes up to sqrt(n)
-	// OPTIMIZATION: will be migrated to CONSTANT memory
+	/* The Number Field S
+	   will be migrated to GLOBAL memory
+	   OPTIMIZATION: ranges will be migrated to SHARED memory
+	   OPTIMIZATION: [0, sqrt(n)] will be migrated to CONSTANT memory
+	*/
+	bool * d_S = NULL;
 
 	// The Wheel Precomputed Table
 	// will be migrated to GLOBAL memory
 	// OPTIMIZATION: may be migrated to CONSTANT memory as well
 	Wheel_k d_wheel;
+	d_wheel.rp = NULL;
+	d_wheel.dist = NULL;
 
 	// Choose which GPU to run on, change this on a multi-GPU system.
 	cudaStatus = cudaSetDevice(0);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n");
 		return cudaStatus;
-
 	}
 
 	// Measure start time for CUDA portion
@@ -318,21 +338,18 @@ cudaError_t parallelSieve(
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed on number field S!\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
-
 	}
 
-	cudaStatus = cudaMalloc((void**)&d_wheel.rp, n * sizeof(bool));
+	cudaStatus = cudaMalloc((void**)&(d_wheel.rp), n * sizeof(bool));
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed on wheel.rp!\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
-
 	}
 
-	cudaStatus = cudaMalloc((void**)&d_wheel.dist, n * sizeof(big));
+	cudaStatus = cudaMalloc((void**)&(d_wheel.dist), n * sizeof(big));
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed on wheel.dist!\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
-
 	}
 
 	//  cudaMemCpy -> Device
@@ -340,21 +357,18 @@ cudaError_t parallelSieve(
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy failed! S->d_S.\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
-
 	}
 
 	cudaStatus = cudaMemcpy(d_wheel.rp, wheel.rp, n * sizeof(bool), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy failed! wheel.rp->d_wheel.rp\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
-
 	}
 
 	cudaStatus = cudaMemcpy(d_wheel.dist, wheel.dist, n * sizeof(big), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy failed! wheel.dist->d_wheel.dist\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
-
 	}
 
 	// Kernel Call
@@ -367,14 +381,12 @@ cudaError_t parallelSieve(
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "parallelSieveKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
 		return cleanup(d_S, d_wheel, cudaStatus);
-
 	}
 
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
 		return cleanup(d_S, d_wheel, cudaStatus);
-
 	}
 
 	// cudaMemCpy -> Host
@@ -382,7 +394,6 @@ cudaError_t parallelSieve(
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy failed! d_S->S.\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
-
 	}
 
 	// Measure stop time for CUDA portion
@@ -393,13 +404,11 @@ cudaError_t parallelSieve(
 	printf("Time to generate: %0.5f ms\n", elapsedTime);
 
 	// cudaFree
-
 	return cleanup(d_S, d_wheel, cudaStatus);
 }
 
 cudaError_t cleanup(bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus)
 {
-
 	cudaFree(d_S);
 	cudaFree(wheel.rp);
 	cudaFree(wheel.dist);
