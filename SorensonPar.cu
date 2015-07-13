@@ -35,8 +35,8 @@ bool * S;	// Global shared bit array of numbers up to N
 int P;		// Global number of processors
 
 /*	Custom math functions for the device */
-/* find number c s.t a = sc, b = tc */
 
+// find number c such that: a = sc, b = tc
 __device__ big gcd_d(big a, big b)
 {
    big tmp;
@@ -50,6 +50,7 @@ __device__ big gcd_d(big a, big b)
    return a;
 }
 
+// Babylonian Method
 __device__ big sqrt_d(big a)
 {
    big x_0 = a/2;
@@ -107,10 +108,9 @@ cudaError_t parallelSieve(
 */
 
 /* Frees the memory allocated on the device and returns any errors*/
-cudaError_t cleanup(
-   bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus);
+cudaError_t cleanup(bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus);
    
-   
+
 __global__ void parallelSieveKernel(
 	big n, big k, big m, Wheel_k d_wheel, big range, bool *d_S)
 {
