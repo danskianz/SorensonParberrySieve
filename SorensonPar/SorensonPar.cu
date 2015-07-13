@@ -304,7 +304,7 @@ cudaError_t parallelSieve(
 	// Choose which GPU to run on, change this on a multi-GPU system.
 	cudaStatus = cudaSetDevice(0);
 	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
+		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n");
 		return cudaStatus;
 
 	}
@@ -315,21 +315,21 @@ cudaError_t parallelSieve(
 	// CUDA Memory Allocations.
 	cudaStatus = cudaMalloc((void**)&d_S, n * sizeof(bool));
 	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed on number field S!");
+		fprintf(stderr, "cudaMalloc failed on number field S!\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
 
 	}
 
 	cudaStatus = cudaMalloc((void**)&d_wheel.rp, n * sizeof(bool));
 	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed on wheel.rp!");
+		fprintf(stderr, "cudaMalloc failed on wheel.rp!\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
 
 	}
 
 	cudaStatus = cudaMalloc((void**)&d_wheel.dist, n * sizeof(big));
 	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed on wheel.dist!");
+		fprintf(stderr, "cudaMalloc failed on wheel.dist!\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
 
 	}
@@ -337,21 +337,21 @@ cudaError_t parallelSieve(
 	//  cudaMemCpy -> Device
 	cudaStatus = cudaMemcpy(d_S, S, n * sizeof(bool), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed! S->d_S.");
+		fprintf(stderr, "cudaMemcpy failed! S->d_S.\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
 
 	}
 
 	cudaStatus = cudaMemcpy(d_wheel.rp, wheel.rp, n * sizeof(bool), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed! wheel.rp->d_wheel.rp");
+		fprintf(stderr, "cudaMemcpy failed! wheel.rp->d_wheel.rp\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
 
 	}
 
 	cudaStatus = cudaMemcpy(d_wheel.dist, wheel.dist, n * sizeof(big), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed! wheel.dist->d_wheel.dist");
+		fprintf(stderr, "cudaMemcpy failed! wheel.dist->d_wheel.dist\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
 
 	}
@@ -379,7 +379,7 @@ cudaError_t parallelSieve(
 	// cudaMemCpy -> Host
 	cudaStatus = cudaMemcpy(S, d_S, n * sizeof(bool), cudaMemcpyDeviceToHost);
 	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed! d_S->S.");
+		fprintf(stderr, "cudaMemcpy failed! d_S->S.\n");
 		return cleanup(d_S, d_wheel, cudaStatus);
 
 	}
