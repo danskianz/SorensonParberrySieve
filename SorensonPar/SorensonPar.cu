@@ -11,8 +11,8 @@
 */
 
 // Visual Studio Dependencies (Can be commented out)
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
+//#include "cuda_runtime.h"
+//#include "device_launch_parameters.h"
 
 // C dependencies
 #include <stdio.h>
@@ -21,9 +21,6 @@
 
 // C++ dependencies
 #include <algorithm>
-
-using std::min;
-using std::max;
 
 typedef unsigned long long big;
 
@@ -37,8 +34,15 @@ typedef struct Wheel_t
 bool * S;	// Global shared bit array of numbers up to N
 int P;		// Global number of processors
 
-/*	Custom GCD implementation for C++ */
-big gcd(big a, big b);
+/*	Custom math functions for the device */
+__device__ big gcd_d(big a, big b);
+
+__device__ big sqrt_d(big a);
+
+__device__ big min(big a, big b);
+
+__device__ big max(big a, big b);
+
 
 /*	EratosthenesSieve
 	The most basic form of generating primes.
@@ -67,16 +71,58 @@ cudaError_t parallelSieve(
 	Remarks: No optimizations yet performed.
 			 For n = 1 billion, it uses 31623 threads
 */
+
+/* find number c s.t a = sc, b = tc
+__device__ big gcd_d(big a, big b)
+{
+   if (b == 0)
+      return a;
+      
+   return gcd(b, a%b);
+}
+
+__device__ big sqrt_d(big a)
+{
+   big x_0 = a/2;
+   big root = 0;
+   
+   for (big n = x_0; n < 10; n++)
+   {
+      root = 0.5 * (root + (a/root));
+   }
+   
+   return root;
+}
+
+__device__ big min(big a, big b)
+{
+   if (a < b)
+      return a;
+   return b;
+}
+
+__device__ big max(big a, big b)
+{
+   if (a > b)
+      return a;
+   return b;
+}
+
+
+/* Frees the memory allocated on the device and returns any errors*/
+cudaError_t cleanup(
+   bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus);
+   
 __global__ void parallelSieveKernel(
 	big n, big k, big m, Wheel_k d_wheel, big range, bool *d_S)
 {
-	big sqrt_N = (big)ceill(sqrtl(n));
+	big sqrt_N = (sqrt_d(n));
 
 	// Express the sieve in thread mode.
 	big i = threadIdx.x + blockIdx.x * blockDim.x;
 
 	big L = range * i + 1;
-	big R = std::min(range * (i + 1), n);
+	big R = min(range * (i + 1), n);
 
 	/* Range Sieving */
 	for (big x = L; x < R; x++)
@@ -88,9 +134,9 @@ __global__ void parallelSieveKernel(
 		if (d_S[q])
 		{
 			/* Compute smallest f s.t.
-			gcd(qf, m) == 1,
+			gcd_d(qf, m) == 1,
 			qf >= max(L, q^2) */
-			big f = std::max(q - 1, (big)ceill( (L / (long double)q) - 1));
+			big f = max(q - 1, (big)( (L / q) - 1));
 
 			/* f = f + W_k[f mod m].dist */
 			f += d_wheel.dist[f % m];
@@ -98,7 +144,7 @@ __global__ void parallelSieveKernel(
 			/* Remove the multiples of current prime */
 			while ((q * f) <= R)
 			{
-				S[q * f] = false;
+				d_S[q * f] = false;
 				f += d_wheel.dist[f % m];
 			}
 		}
@@ -145,7 +191,7 @@ int main(int argc, char **argv)
     return 0;
 }
 
-big gcd(big a, big b)
+__host__ big gcd(big a, big b)
 {
 	int tmp;
 	while (a != 0)
@@ -159,7 +205,7 @@ big gcd(big a, big b)
 
 big EratosthenesSieve(long double k, big n)
 {
-	big kthPrime;
+	big kthPrime = 0;
 
 	// 0 and 1 are non-primes.
 	S[0] = S[1] = false;
@@ -177,7 +223,9 @@ big EratosthenesSieve(long double k, big n)
 
 	// Find the k-th prime.
 	for (big i = k; i > 2; i--)
-		if (S[i]) return i;
+		if (S[i]) kthPrime = i;
+      
+   return kthPrime;
 }
 
 cudaError_t algorithm4_1(big n)
@@ -259,7 +307,8 @@ cudaError_t parallelSieve(
 	cudaStatus = cudaSetDevice(0);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
-		goto Error;
+		return cudaStatus;
+
 	}
 
 	// Measure start time for CUDA portion
@@ -269,38 +318,44 @@ cudaError_t parallelSieve(
 	cudaStatus = cudaMalloc((void**)&d_S, n * sizeof(bool));
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed on number field S!");
-		goto Error;
+		return cleanup(d_S, d_wheel, cudaStatus);
+
 	}
 
 	cudaStatus = cudaMalloc((void**)&d_wheel.rp, n * sizeof(bool));
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed on wheel.rp!");
-		goto Error;
+		return cleanup(d_S, d_wheel, cudaStatus);
+
 	}
 
 	cudaStatus = cudaMalloc((void**)&d_wheel.dist, n * sizeof(big));
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed on wheel.dist!");
-		goto Error;
+		return cleanup(d_S, d_wheel, cudaStatus);
+
 	}
 
 	//  cudaMemCpy -> Device
 	cudaStatus = cudaMemcpy(d_S, S, n * sizeof(bool), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy failed! S->d_S.");
-		goto Error;
+		return cleanup(d_S, d_wheel, cudaStatus);
+
 	}
 
 	cudaStatus = cudaMemcpy(d_wheel.rp, wheel.rp, n * sizeof(bool), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy failed! wheel.rp->d_wheel.rp");
-		goto Error;
+		return cleanup(d_S, d_wheel, cudaStatus);
+
 	}
 
 	cudaStatus = cudaMemcpy(d_wheel.dist, wheel.dist, n * sizeof(big), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy failed! wheel.dist->d_wheel.dist");
-		goto Error;
+		return cleanup(d_S, d_wheel, cudaStatus);
+
 	}
 
 	// Kernel Call
@@ -312,20 +367,23 @@ cudaError_t parallelSieve(
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "parallelSieveKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
-		goto Error;
+		return cleanup(d_S, d_wheel, cudaStatus);
+
 	}
 
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
-		goto Error;
+		return cleanup(d_S, d_wheel, cudaStatus);
+
 	}
 
 	// cudaMemCpy -> Host
 	cudaStatus = cudaMemcpy(S, d_S, n * sizeof(bool), cudaMemcpyDeviceToHost);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy failed! d_S->S.");
-		goto Error;
+		return cleanup(d_S, d_wheel, cudaStatus);
+
 	}
 
 	// Measure stop time for CUDA portion
@@ -336,10 +394,15 @@ cudaError_t parallelSieve(
 	printf("Time to generate: %0.5f ms\n", elapsedTime);
 
 	// cudaFree
-Error:
-	cudaFree(d_S);
-	cudaFree(d_wheel.rp);
-	cudaFree(d_wheel.dist);
 
+	return cleanup(d_S, d_wheel, cudaStatus);
+}
+
+cudaError_t cleanup(bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus)
+{
+
+	cudaFree(d_S);
+	cudaFree(wheel.rp);
+	cudaFree(wheel.dist);
 	return cudaStatus;
 }
