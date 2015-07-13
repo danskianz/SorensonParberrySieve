@@ -191,14 +191,15 @@ int main(int argc, char **argv)
 
 __host__ big gcd(big a, big b)
 {
-	int tmp;
-	while (a != 0)
+	big tmp;
+   
+	while (b != 0)
 	{
 		tmp = a;
-		a = b % a;
-		b = tmp;
+		a = b;
+		b = tmp%b;
 	}
-	return b;
+	return a;
 }
 
 big EratosthenesSieve(long double k, big n)
