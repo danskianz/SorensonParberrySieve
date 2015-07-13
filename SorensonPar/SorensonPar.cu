@@ -171,7 +171,7 @@ __global__ void parallelSieveKernel3(
 */
 int main(int argc, char **argv)
 {
-	big N = (big)argv[1];
+	big N = (big)strtoull(argv[1], NULL, 10);
 	S = new bool[N]; //(bool*)malloc(N * sizeof(bool));
 
 	printf("Find primes up to: %llu", N);
