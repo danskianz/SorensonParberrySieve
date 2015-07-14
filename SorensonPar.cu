@@ -131,34 +131,40 @@ __global__ void parallelSieveKernel(
 	// Express the sieve in thread mode.
 	big i = threadIdx.x + blockIdx.x * blockDim.x;
 
-	big L = range * i + 1;
-	big R = min_d(range * (i + 1), n);
-
-	/* Range Sieving */
-	for (big x = L; x < R; x++)
-		d_S[x] = d_wheel.rp[x % m];
-
-	/* For every prime from prime[k] up to sqrt(N) */
-	for (big q = k; q < sqrt_N; q++)
+	// Threads beyond n will not do work.
+	if (i <= n)
 	{
-		if (d_S[q])
+		big L = range * i + 1;
+		big R = min_d(range * (i + 1), n);
+
+		/* Range Sieving */
+		for (big x = L; x < R; x++)
+			d_S[x] = d_wheel.rp[x % m];
+
+		/* For every prime from prime[k] up to sqrt(N) */
+		for (big q = k; q < sqrt_N; q++)
 		{
-			/* Compute smallest f s.t.
-			gcd_d(qf, m) == 1,
-			qf >= max_d(L, q^2) */
-			big f = max_d(q - 1, (big)( (L / q) - 1));
-
-			/* f = f + W_k[f mod m].dist */
-			f += d_wheel.dist[f % m];
-
-			/* Remove the multiples of current prime */
-			while ((q * f) <= R)
+			if (d_S[q])
 			{
-				d_S[q * f] = false;
+				/* Compute smallest f s.t.
+				gcd_d(qf, m) == 1,
+				qf >= max_d(L, q^2) */
+				big f = max_d(q - 1, (big)((L / q) - 1));
+
+				/* f = f + W_k[f mod m].dist */
 				f += d_wheel.dist[f % m];
+
+				/* Remove the multiples of current prime */
+				while ((q * f) <= R)
+				{
+					// EREW Precaution. May need to be atomic operation.
+					if (!(d_S[q * f])) d_S[q * f] = false;
+					f += d_wheel.dist[f % m];
+				}
 			}
 		}
 	}
+	
 }
 
 /*	TODO: Algorithm 4.1: Parallel Sieve Kernel version 2
