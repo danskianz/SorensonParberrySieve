@@ -94,7 +94,7 @@ __device__ big sqrt_d(big a)
 {
    big root = a/2;
    
-   for (big n = x_0; n < 10; n++)
+   for (big n = 0; n < 10; n++)
    {
       root = 0.5 * (root + (a/root));
    }
