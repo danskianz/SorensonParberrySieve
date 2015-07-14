@@ -11,8 +11,8 @@
 */
 
 // Visual Studio Dependencies (Can be commented out)
-//#include "cuda_runtime.h"
-//#include "device_launch_parameters.h"
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
 
 // C dependencies
 #include <stdio.h>
