@@ -92,8 +92,7 @@ __device__ big gcd_d(big a, big b)
 */
 __device__ big sqrt_d(big a)
 {
-   big x_0 = a/2;
-   big root = 0;
+   big root = a/2;
    
    for (big n = x_0; n < 10; n++)
    {
