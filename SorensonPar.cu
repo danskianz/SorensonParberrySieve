@@ -11,8 +11,8 @@
 */
 
 // Visual Studio Dependencies (Can be commented out)
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
+//#include "cuda_runtime.h"
+//#include "device_launch_parameters.h"
 
 // C dependencies
 #include <stdio.h>
@@ -40,7 +40,7 @@ int P;		// Global number of processors
 /*	gcd
 	Host version of the Euclidean Method
 */
-__host__ big gcd(big a, big b);
+__host__ big gcd(big u, big v);
 
 /*	EratosthenesSieve
 	HELPER: for Algorithm 4.1 Sequential Portion
@@ -69,21 +69,29 @@ cudaError_t cleanup(bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus);
 
 // DEVICE MATH FUNCTIONS---------------------------------
 
-/*	gcd_d
-	Device version of the Euclidean Method
-	find number c such that: a = sc, b = tc
+/*	gcd_d (CHANGED from Euclidean to Binary)
+	Device version of binary GCD
+	Uses binary shift operators for maximum speed
+	Tested. Works perfectly.
 */
-__device__ big gcd_d(big a, big b)
+__device__ big gcd_d(big u, big v)
 {
-   big tmp;
-   
-   while (b!=0)
-   {
-      tmp = a;
-      a = b;
-      b = tmp%b;
-   }
-   return a;
+	big g = 1;
+
+	while ((u % 2 == 0) && (v % 2 == 0))
+	{
+		g <<= 1;
+		u >>= 1;
+		v >>= 1;
+	}
+
+	while (u != 0 && v != 0)
+		if (u % 2 == 0) u >>= 1;
+		else if (v % 2 == 0) v >>= 1;
+		else if (u > v) u = (u - v) >> 1;
+		else v = (v - u) >> 1;
+
+	return (g * (u + v));
 }
 
 /*	sqrt_d
@@ -214,17 +222,24 @@ int main(int argc, char **argv)
 
 // HOST FUNCTION DEFINITIONS-----------------------------
 
-__host__ big gcd(big a, big b)
+__host__ big gcd(big u, big v)
 {
-	big tmp;
-   
-	while (b != 0)
+	big g = 1;
+
+	while ((u % 2 == 0) && (v % 2 == 0))
 	{
-		tmp = a;
-		a = b;
-		b = tmp%b;
+		g <<= 1;
+		u >>= 1;
+		v >>= 1;
 	}
-	return a;
+
+	while (u != 0 && v != 0)
+		if (u % 2 == 0) u >>= 1;
+		else if (v % 2 == 0) v >>= 1;
+		else if (u > v) u = (u - v) >> 1;
+		else v = (v - u) >> 1;
+
+	return (g * (u + v));
 }
 
 big EratosthenesSieve(long double k, big n)
@@ -329,11 +344,11 @@ cudaError_t parallelSieve(
 	d_wheel.dist = NULL;
 
 	// Choose which GPU to run on, change this on a multi-GPU system.
-	cudaStatus = cudaSetDevice(0);
+	/*cudaStatus = cudaSetDevice(0);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n");
 		return cudaStatus;
-	}
+	}*/
 
 	// Measure start time for CUDA portion
 	cudaEventRecord(start, 0);
