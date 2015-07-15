@@ -38,7 +38,7 @@ int P;		// Global number of processors
 // HOST FUNCTION HEADERS---------------------------------
 
 /*	gcd
-	Host version of the Euclidean Method
+	Host version of the Binary GCD
 */
 __host__ big gcd(big u, big v);
 
