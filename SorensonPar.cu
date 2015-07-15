@@ -11,8 +11,8 @@
 */
 
 // Visual Studio Dependencies (Can be commented out)
-//#include "cuda_runtime.h"
-//#include "device_launch_parameters.h"
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
 
 // C dependencies
 #include <stdio.h>
@@ -38,7 +38,7 @@ int P;		// Global number of processors
 // HOST FUNCTION HEADERS---------------------------------
 
 /*	gcd
-	Host version of the Binary GCD
+	Host version of the Euclidean Method
 */
 __host__ big gcd(big u, big v);
 
@@ -69,11 +69,28 @@ cudaError_t cleanup(bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus);
 
 // DEVICE MATH FUNCTIONS---------------------------------
 
-/*	gcd_d (CHANGED from Euclidean to Binary)
-	Device version of binary GCD
-	Uses binary shift operators for maximum speed
-	Tested. Works perfectly.
+/*	gcd_d
+	Device version of the Euclidean Method
+	find number c such that: a = sc, b = tc
 */
+/*
+__device__ big gcd_d(big a, big b)
+{
+   big tmp;
+   
+   while (b!=0)
+   {
+      tmp = a;
+      a = b;
+      b = tmp%b;
+   }
+   return a;
+}
+*/
+/*	gcd_d
+	Device version of the Binary Method
+	with bit arithmetic
+	*/
 __device__ big gcd_d(big u, big v)
 {
 	big g = 1;
@@ -222,6 +239,22 @@ int main(int argc, char **argv)
 
 // HOST FUNCTION DEFINITIONS-----------------------------
 
+// Euclidean Method
+/*
+__host__ big gcd(big u, big v)
+{
+	big tmp;
+   
+	while (v != 0)
+	{
+		tmp = u;
+		u = v;
+		v = tmp%v;
+	}
+	return u;
+}
+*/
+// Binary Method
 __host__ big gcd(big u, big v)
 {
 	big g = 1;
@@ -344,11 +377,11 @@ cudaError_t parallelSieve(
 	d_wheel.dist = NULL;
 
 	// Choose which GPU to run on, change this on a multi-GPU system.
-	/*cudaStatus = cudaSetDevice(0);
+	cudaStatus = cudaSetDevice(0);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n");
 		return cudaStatus;
-	}*/
+	}
 
 	// Measure start time for CUDA portion
 	cudaEventRecord(start, 0);
