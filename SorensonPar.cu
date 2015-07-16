@@ -254,6 +254,7 @@ int main(int argc, char **argv)
 	for (int i = 0; i < N; i++)
 		if (S[i]) printf("%llu ", i);
 
+	delete[] S;
     return 0;
 }
 
