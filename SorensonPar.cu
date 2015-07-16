@@ -83,7 +83,6 @@ double report_running_time(const char *arr);
 	Device version of the Euclidean Method
 	find number c such that: a = sc, b = tc
 */
-/*
 __device__ big gcd_d(big a, big b)
 {
    big tmp;
@@ -96,11 +95,12 @@ __device__ big gcd_d(big a, big b)
    }
    return a;
 }
-*/
+
 /*	gcd_d
 	Device version of the Binary Method
 	with bit arithmetic
 	*/
+/*
 __device__ big gcd_d(big u, big v)
 {
 	big g = 1;
@@ -120,6 +120,7 @@ __device__ big gcd_d(big u, big v)
 
 	return (g * (u + v));
 }
+*/
 
 /*	sqrt_d
 	Device version of the Square Root Function
@@ -260,7 +261,6 @@ int main(int argc, char **argv)
 // HOST FUNCTION DEFINITIONS-----------------------------
 
 // Euclidean Method
-/*
 __host__ big gcd(big u, big v)
 {
 	big tmp;
@@ -273,8 +273,9 @@ __host__ big gcd(big u, big v)
 	}
 	return u;
 }
-*/
+
 // Binary Method
+/*
 __host__ big gcd(big u, big v)
 {
 	big g = 1;
@@ -294,6 +295,7 @@ __host__ big gcd(big u, big v)
 
 	return (g * (u + v));
 }
+*/
 
 big EratosthenesSieve(long double k, big n)
 {
