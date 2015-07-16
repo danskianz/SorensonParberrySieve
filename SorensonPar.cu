@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <sys/time.h>
 
 // C++ dependencies
 #include <algorithm>
@@ -34,6 +35,12 @@ typedef struct Wheel_t	// Struct-of-Arrays Wheel
 
 bool * S;	// Global shared bit array of numbers up to N
 int P;		// Global number of processors
+
+bool check_cuda_status = false; // turn to false when running on circe
+
+/* These are for tracking time */
+struct timezone myTimezone;	
+struct timeval startTime, endTime;
 
 // HOST FUNCTION HEADERS---------------------------------
 
@@ -65,6 +72,9 @@ cudaError_t parallelSieve(
 
 /* Frees the memory allocated on the device and returns any errors*/
 cudaError_t cleanup(bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus);
+
+/* Set a checkpoint and show the total running time in seconds */
+double report_running_time(const char *arr);
 
 
 // DEVICE MATH FUNCTIONS---------------------------------
@@ -221,12 +231,22 @@ int main(int argc, char **argv)
 	big N = (big)strtoull(argv[1], NULL, 10);
 	S = new bool[N]; //(bool*)malloc(N * sizeof(bool));
 
-	printf("Find primes up to: %llu", N);
+	printf("Find primes up to: %llu\n\n", N);
+	
+	/* start counting time */
+	gettimeofday(&startTime, &myTimezone);
 
 	cudaError_t x = algorithm4_1(N);
-	if (x != cudaSuccess) {
-		printf("Algorithm 4.1 failed to execute!");
-		return 1;
+
+	/* check the total running time */ 
+	report_running_time("Algorithm 4.1");
+
+	if (check_cuda_status)
+	{
+		if (x != cudaSuccess) {
+			printf("Algorithm 4.1 failed to execute!");
+			return 1;
+		}
 	}
 
 	// Display the primes.
@@ -343,8 +363,11 @@ cudaError_t algorithm4_1(big n)
 
 	/* PARALLEL PART */
 	cudaError_t parallelStatus = parallelSieve(n, k, m, wheel, range);
-	if (parallelStatus != cudaSuccess) {
-		fprintf(stderr, "parallelSieve() failed!");
+	if (check_cuda_status)
+	{
+		if (parallelStatus != cudaSuccess) {
+			fprintf(stderr, "parallelSieve() failed!");
+		}
 	}
 
 	/* FREE */
@@ -378,9 +401,12 @@ cudaError_t parallelSieve(
 
 	// Choose which GPU to run on, change this on a multi-GPU system.
 	cudaStatus = cudaSetDevice(0);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n");
-		return cudaStatus;
+	if (check_cuda_status)
+	{
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?\n");
+			return cudaStatus;
+		}
 	}
 
 	// Measure start time for CUDA portion
@@ -388,40 +414,58 @@ cudaError_t parallelSieve(
 
 	// CUDA Memory Allocations.
 	cudaStatus = cudaMalloc((void**)&d_S, n * sizeof(bool));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed on number field S!\n");
-		return cleanup(d_S, d_wheel, cudaStatus);
+	if (check_cuda_status)
+	{
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaMalloc failed on number field S!\n");
+			return cleanup(d_S, d_wheel, cudaStatus);
+		}
 	}
 
 	cudaStatus = cudaMalloc((void**)&(d_wheel.rp), n * sizeof(bool));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed on wheel.rp!\n");
-		return cleanup(d_S, d_wheel, cudaStatus);
+	if (check_cuda_status)
+	{
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaMalloc failed on wheel.rp!\n");
+			return cleanup(d_S, d_wheel, cudaStatus);
+		}
 	}
 
 	cudaStatus = cudaMalloc((void**)&(d_wheel.dist), n * sizeof(big));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed on wheel.dist!\n");
-		return cleanup(d_S, d_wheel, cudaStatus);
+	if (check_cuda_status)
+	{
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaMalloc failed on wheel.dist!\n");
+			return cleanup(d_S, d_wheel, cudaStatus);
+		}
 	}
 
 	//  cudaMemCpy -> Device
 	cudaStatus = cudaMemcpy(d_S, S, n * sizeof(bool), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed! S->d_S.\n");
-		return cleanup(d_S, d_wheel, cudaStatus);
+	if (check_cuda_status)
+	{
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaMemcpy failed! S->d_S.\n");
+			return cleanup(d_S, d_wheel, cudaStatus);
+		}
 	}
 
 	cudaStatus = cudaMemcpy(d_wheel.rp, wheel.rp, n * sizeof(bool), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed! wheel.rp->d_wheel.rp\n");
-		return cleanup(d_S, d_wheel, cudaStatus);
+	if (check_cuda_status)
+	{
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaMemcpy failed! wheel.rp->d_wheel.rp\n");
+			return cleanup(d_S, d_wheel, cudaStatus);
+		}
 	}
 
 	cudaStatus = cudaMemcpy(d_wheel.dist, wheel.dist, n * sizeof(big), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed! wheel.dist->d_wheel.dist\n");
-		return cleanup(d_S, d_wheel, cudaStatus);
+	if (check_cuda_status)
+	{
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaMemcpy failed! wheel.dist->d_wheel.dist\n");
+			return cleanup(d_S, d_wheel, cudaStatus);
+		}
 	}
 
 	// Kernel Call
@@ -431,22 +475,31 @@ cudaError_t parallelSieve(
 	parallelSieveKernel<<<gridSize, blockSize>>>(n, k, m, wheel, range, d_S);
 
 	cudaStatus = cudaGetLastError();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "parallelSieveKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
-		return cleanup(d_S, d_wheel, cudaStatus);
+	if (check_cuda_status)
+	{
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "parallelSieveKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+			return cleanup(d_S, d_wheel, cudaStatus);
+		}
 	}
 
 	cudaStatus = cudaDeviceSynchronize();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
-		return cleanup(d_S, d_wheel, cudaStatus);
+	if (check_cuda_status)
+	{
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
+			return cleanup(d_S, d_wheel, cudaStatus);
+		}
 	}
 
 	// cudaMemCpy -> Host
 	cudaStatus = cudaMemcpy(S, d_S, n * sizeof(bool), cudaMemcpyDeviceToHost);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed! d_S->S.\n");
-		return cleanup(d_S, d_wheel, cudaStatus);
+	if (check_cuda_status)
+	{
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaMemcpy failed! d_S->S.\n");
+			return cleanup(d_S, d_wheel, cudaStatus);
+		}
 	}
 
 	// Measure stop time for CUDA portion
@@ -466,4 +519,20 @@ cudaError_t cleanup(bool *d_S, Wheel_k &wheel, cudaError_t cudaStatus)
 	cudaFree(wheel.rp);
 	cudaFree(wheel.dist);
 	return cudaStatus;
+}
+
+/* 
+	set a checkpoint and show the (natural) running time in seconds 
+*/
+double report_running_time(const char *arr) {
+	long sec_diff, usec_diff;
+	gettimeofday(&endTime, &myTimezone);
+	sec_diff = endTime.tv_sec - startTime.tv_sec;
+	usec_diff= endTime.tv_usec-startTime.tv_usec;
+	if(usec_diff < 0) {
+		sec_diff --;
+		usec_diff += 1000000;
+	}
+	printf("Running time for %s: %ld.%06ld sec\n\n", arr, sec_diff, usec_diff);
+	return (double)(sec_diff*1.0 + usec_diff/1000000.0);
 }
